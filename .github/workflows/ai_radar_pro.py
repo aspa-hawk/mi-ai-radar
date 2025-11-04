@@ -2,17 +2,12 @@
 # AI Radar Pro + Telegram — Nov 2025
 # Alertas en tiempo real sobre IA, deepfakes, ciberseguridad y multimedia
 
-# 👇 LÍNEA DE PRUEBA — borra después
-print("✅ Script ejecutado correctamente. Enviando mensaje de prueba a Telegram...")
-send_telegram_alert({"✅ Test": ["• Este es un mensaje de prueba"]})
-exit()  # Para detener el script después de la prueba
-
 import feedparser
 import requests
 from datetime import datetime, timedelta
 import os
 
-# ===== CONFIGURACIÓN (usa variables de entorno) =====
+# ===== CONFIGURACIÓN =====
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "TU_TOKEN_AQUI")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "TU_CHAT_ID_AQUI")
 
@@ -91,7 +86,10 @@ def send_telegram_alert(alerts):
     except Exception as e:
         print(f"[TELEGRAM EXCEPTION] {e}")
 
+# ===========================
+# 🧪 PRUEBA MANUAL (borra esta sección después de probar)
+# ===========================
 if __name__ == "__main__":
-    print("📡 Escaneando el espectro de IA...")
-    alerts = fetch_alerts(last_hours=24)
-    send_telegram_alert(alerts)
+    print("✅ Script ejecutado correctamente. Enviando mensaje de prueba a Telegram...")
+    send_telegram_alert({"✅ Test": ["• Este es un mensaje de prueba"]})
+    exit()  # Detener aquí para la prueba

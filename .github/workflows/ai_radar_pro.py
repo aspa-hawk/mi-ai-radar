@@ -86,10 +86,7 @@ def send_telegram_alert(alerts):
     except Exception as e:
         print(f"[TELEGRAM EXCEPTION] {e}")
 
-# ===========================
-# 🧪 PRUEBA MANUAL (borra esta sección después de probar)
-# ===========================
 if __name__ == "__main__":
-    print("✅ Script ejecutado correctamente. Enviando mensaje de prueba a Telegram...")
-    send_telegram_alert({"✅ Test": ["• Este es un mensaje de prueba"]})
-    exit()  # Detener aquí para la prueba
+    print("📡 Escaneando el espectro de IA...")
+    alerts = fetch_alerts(last_hours=24)
+    send_telegram_alert(alerts)

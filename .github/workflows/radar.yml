@@ -14,10 +14,47 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: |
-          pip install feedparser requests
-      - name: Run AI Radar
+        run: pip install feedparser requests
+      - name: Run AI Radar & Send to Replit
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python .github/workflows/ai_radar_pro.py
+          RADAR_SECRET_KEY: ${{ secrets.RADAR_SECRET_KEY }}
+        run: |
+          python <<EOF
+          import feedparser
+          import requests
+          from datetime import datetime, timedelta
+
+          SOURCES = {
+              "🤖 Generative AI": "https://huggingface.co/models?pipeline_tag=text-to-video&sort=modified&rss=true",
+              "🕵️ Deepfakes": "https://realitydefender.com/blog/rss/",
+              "🛡️ MITRE ATLAS": "https://atlas.mitre.org/updates.rss",
+              "🔬 arXiv CV": "http://arxiv.org/rss/cs.CV",
+              "🐙 GitHub AI": "https://github.com/trending?l=python&since=daily&q=ai"
+          }
+
+          IMPACT = ["deepfake", "exploit", "launch", "SOTA", "voice cloning", "agent"]
+
+          def has_signal(txt):
+              return any(k in txt.lower() for k in IMPACT)
+
+          alerts = []
+          cutoff = datetime.now() - timedelta(hours=24)
+
+          for cat, url in SOURCES.items():
+              try:
+                  feed = feedparser.parse(url)
+                  for e in feed.entries:
+                      pub = datetime(*e.published_parsed[:6]) if e.published_parsed else datetime.min
+                      if pub > cutoff and has_signal(e.title + " " + getattr(e, 'summary', '')):
+                          alerts.append(f"• <a href='{e.link}'>{e.title[:70]}...</a>")
+              except: pass
+
+          if alerts:
+              msg = "🌌 <b>AI Radar Galáctico</b> — Últimas 24h\\n\\n" + "\\n".join(alerts)
+              payload = {"message": msg}
+              headers = {"X-Secret-Key": "${{ secrets.RADAR_SECRET_KEY }}", "Content-Type": "application/json"}
+              r = requests.post("https://ai-radar-asistente.archaeologist20.repl.co/ingest-alert", json=payload, headers=headers)
+              print("✅ Alerta enviada a Replit" if r.status_code == 200 else f"❌ Error: {r.text}")
+          else:
+              print("😴 Nada nuevo.")
+          EOF

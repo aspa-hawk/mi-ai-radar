@@ -2,6 +2,11 @@
 # AI Radar Pro + Telegram — Nov 2025
 # Alertas en tiempo real sobre IA, deepfakes, ciberseguridad y multimedia
 
+# 👇 LÍNEA DE PRUEBA — borra después
+print("✅ Script ejecutado correctamente. Enviando mensaje de prueba a Telegram...")
+send_telegram_alert({"✅ Test": ["• Este es un mensaje de prueba"]})
+exit()  # Para detener el script después de la prueba
+
 import feedparser
 import requests
 from datetime import datetime, timedelta

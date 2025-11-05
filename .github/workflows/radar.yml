@@ -15,6 +15,7 @@ jobs:
           python-version: '3.10'
       - name: Install dependencies
         run: pip install feedparser requests
+
       - name: Run AI Radar & Send to Replit
         env:
           RADAR_SECRET_KEY: ${{ secrets.RADAR_SECRET_KEY }}
@@ -23,38 +24,104 @@ jobs:
           import feedparser
           import requests
           from datetime import datetime, timedelta
+          import html
 
+          # =============== Fuentes confiables y relevantes ===============
           SOURCES = {
-              "🤖 Generative AI": "https://huggingface.co/models?pipeline_tag=text-to-video&sort=modified&rss=true",
-              "🕵️ Deepfakes": "https://realitydefender.com/blog/rss/",
+              # IA Generativa & Multimedia
+              "🤖 Hugging Face (Video)": "https://huggingface.co/models?pipeline_tag=text-to-video&sort=modified&rss=true",
+              "🖼️ Hugging Face (Image)": "https://huggingface.co/models?pipeline_tag=text-to-image&sort=modified&rss=true",
+              "🔊 Hugging Face (Audio)": "https://huggingface.co/models?pipeline_tag=text-to-speech&sort=modified&rss=true",
+              "🌍 Replicate New": "https://replicate.com/new/feed",
+              "🎥 Runway ML Blog": "https://runwayml.com/blog/feed",
+              "🚀 Futurepedia (New)": "https://www.futurepedia.io/new/feed",
+              "🛠️ There's An AI For That": "https://theresanaiforthat.com/ai.rss",
+
+              # Deepfakes & Forensics
+              "🕵️ Reality Defender": "https://realitydefender.com/blog/rss/",
+              "🔍 WeVerify (EU)": "https://weverify.eu/feed/",
+
+              # Ciberseguridad + IA
               "🛡️ MITRE ATLAS": "https://atlas.mitre.org/updates.rss",
+              "🚨 CISA AI Security": "https://www.cisa.gov/news.xml?field_topic_target_id[9751]=9751",
+              "💻 The Hacker News": "https://feeds.feedburner.com/TheHackersNews",
+              "🔐 Krebs on Security": "https://krebsonsecurity.com/feed/",
+
+              # Investigación Académica
               "🔬 arXiv CV": "http://arxiv.org/rss/cs.CV",
-              "🐙 GitHub AI": "https://github.com/trending?l=python&since=daily&q=ai"
+              "🔐 arXiv Security": "http://arxiv.org/rss/cs.CR",
+              "🧠 arXiv AI": "http://arxiv.org/rss/cs.AI",
+              "📊 arXiv HC": "http://arxiv.org/rss/cs.HC",
+              "⚛️ arXiv Quantum": "http://arxiv.org/rss/quant-ph",
+              "📈 Papers With Code": "https://paperswithcode.com/rss/latest.xml",
+
+              # Política & Ética
+              "📜 EU AI Act Tracker": "https://artificialintelligenceact.eu/feed/",
+              "🇪🇺 EU Digital Strategy": "https://digital-strategy.ec.europa.eu/en/rss/ai-act",
+
+              # Comunidades & Early Signals
+              "🎨 r/StableDiffusion": "https://www.reddit.com/r/StableDiffusion/new/.rss",
+              "🤖 r/MachineLearning": "https://www.reddit.com/r/MachineLearning/new/.rss",
+              "🎭 r/deepfakes": "https://www.reddit.com/r/deepfakes/new/.rss",
+
+              # Startups & Productos
+              "🔥 Product Hunt (AI)": "https://www.producthunt.com/topics/ai/feed",
+              "📽️ Vimeo Blog": "https://vimeo.com/blog/feed"
           }
 
-          IMPACT = ["deepfake", "exploit", "launch", "SOTA", "voice cloning", "agent"]
+          # =============== Palabras clave de alto impacto ===============
+          IMPACT_KEYWORDS = [
+              "deepfake", "zero-day", "exploit", "bypass", "launch", "release", "new model",
+              "SOTA", "demo", "text-to-video", "video generation", "voice cloning",
+              "generative video", "multimodal", "real-time", "open source", "detection",
+              "AI security", "adversarial", "synthetic media", "forgery", "hallucination",
+              "agent", "red teaming", "quantum", "AI Act", "forensic", "forgery", "bias"
+          ]
 
-          def has_signal(txt):
-              return any(k in txt.lower() for k in IMPACT)
+          def has_high_signal(text):
+              return any(kw in text.lower() for kw in IMPACT_KEYWORDS)
 
-          alerts = []
           cutoff = datetime.now() - timedelta(hours=24)
+          alerts = []
 
-          for cat, url in SOURCES.items():
+          for category, url in SOURCES.items():
               try:
                   feed = feedparser.parse(url)
-                  for e in feed.entries:
-                      pub = datetime(*e.published_parsed[:6]) if e.published_parsed else datetime.min
-                      if pub > cutoff and has_signal(e.title + " " + getattr(e, 'summary', '')):
-                          alerts.append(f"• <a href='{e.link}'>{e.title[:70]}...</a>")
-              except: pass
+                  for entry in feed.entries:
+                      pub = entry.published_parsed
+                      if not pub:
+                          continue
+                      pub_date = datetime(*pub[:6])
+                      if pub_date < cutoff:
+                          continue
 
+                      title = entry.title[:70]
+                      link = entry.link
+                      summary = getattr(entry, 'summary', '')
+
+                      if has_high_signal(title + " " + summary):
+                          # Escapar & y < para Telegram HTML
+                          safe_title = html.escape(title)
+                          alerts.append(f"• <a href='{link}'>{safe_title}...</a> ({category})")
+              except Exception as e:
+                  print(f"[SKIP] {category}: {e}")
+
+          # =============== Enviar a Replit ===============
           if alerts:
-              msg = "🌌 <b>AI Radar Galáctico</b> — Últimas 24h\\n\\n" + "\\n".join(alerts)
-              payload = {"message": msg}
-              headers = {"X-Secret-Key": "${{ secrets.RADAR_SECRET_KEY }}", "Content-Type": "application/json"}
-              r = requests.post("https://ai-radar-asistente.archaeologist20.repl.co/ingest-alert", json=payload, headers=headers)
-              print("✅ Alerta enviada a Replit" if r.status_code == 200 else f"❌ Error: {r.text}")
+              # Limitar a 25 alertas para evitar saturación
+              top_alerts = alerts[:25]
+              message = "🌌 <b>AI Radar Galáctico</b> — Señales de impacto (últimas 24h)\\n\\n" + "\\n".join(top_alerts)
+              payload = {"message": message}
+              headers = {
+                  "X-Secret-Key": "${{ secrets.RADAR_SECRET_KEY }}",
+                  "Content-Type": "application/json"
+              }
+              url = "https://ai-radar-asistente.archaeologist20.repl.co/ingest-alert"
+              r = requests.post(url, json=payload, headers=headers, timeout=15)
+              if r.status_code == 200:
+                  print("✅ Alerta enviada a Replit")
+              else:
+                  print(f"❌ Error Replit: {r.text}")
           else:
-              print("😴 Nada nuevo.")
+              print("😴 No se detectaron señales de impacto en las últimas 24h.")
           EOF

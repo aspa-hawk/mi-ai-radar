@@ -116,7 +116,7 @@ jobs:
                   "X-Secret-Key": "${{ secrets.RADAR_SECRET_KEY }}",
                   "Content-Type": "application/json"
               }
-              url = "url = "https://mi-ai-radar.onrender.com/ingest-alert""
+              url = "https://mi-ai-radar.onrender.com/ingest-alert"
               r = requests.post(url, json=payload, headers=headers, timeout=15)
               if r.status_code == 200:
                   print("✅ Alerta enviada a Replit")

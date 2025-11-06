@@ -2,8 +2,8 @@ from flask import Flask, request
 import requests
 import os
 import re
-
-app = Flask(__name__)
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 
 # ===== CONFIGURACIÓN =====
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -11,14 +11,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID")
 RADAR_SECRET_KEY = os.getenv("RADAR_SECRET_KEY")
 
+app = Flask(__name__)
+
 def send_telegram(chat_id, text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML"
-        })
+        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
     except Exception as e:
         print(f"[TELEGRAM ERROR] {e}")
 
@@ -42,7 +40,58 @@ def query_openai(prompt):
     except Exception as e:
         return f"⚠️ Error técnico: {str(e)}"
 
-# 🔔 Recibe alertas del radar (GitHub → Replit) y ANALIZA AUTOMÁTICAMENTE
+# === EXTRACCIÓN DE CONTENIDO REAL ===
+
+def extract_arxiv_abstract(arxiv_id):
+    """Extrae abstract de arXiv usando su API nativa"""
+    try:
+        url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            # Parsear XML
+            root = ET.fromstring(response.content)
+            entry = root.find("{http://www.w3.org/2005/Atom}entry")
+            if entry is not None:
+                summary = entry.find("{http://www.w3.org/2005/Atom}summary")
+                title = entry.find("{http://www.w3.org/2005/Atom}title")
+                if summary is not None and title is not None:
+                    return title.text.strip(), summary.text.strip()
+    except Exception as e:
+        print(f"[arXiv Error] {e}")
+    return None, None
+
+def extract_generic_content(url):
+    """Extrae texto limpio de cualquier página web"""
+    try:
+        # Intentar con trafilatura (si está instalado)
+        import trafilatura
+        downloaded = trafilatura.fetch_url(url)
+        text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+        if text and len(text) > 100:
+            return text[:2000]  # Limitar a 2000 caracteres
+    except Exception as e:
+        print(f"[Scraping Error] {e}")
+        # Fallback: usar solo el título si no se puede scrapear
+        return f"Contenido de {url} (no se pudo extraer texto completo)."
+    return f"Contenido de {url}."
+
+def get_content_for_url(url):
+    """Devuelve título y contenido real según el tipo de URL"""
+    parsed = urlparse(url)
+    if "arxiv.org" in parsed.netloc:
+        # Extraer ID de arXiv
+        path_parts = parsed.path.strip("/").split("/")
+        if "abs" in path_parts:
+            arxiv_id = path_parts[-1]
+            title, abstract = extract_arxiv_abstract(arxiv_id)
+            if title and abstract:
+                return title, abstract
+    # Para cualquier otra URL
+    content = extract_generic_content(url)
+    return f"Contenido de {url}", content
+
+# === ENDPOINTS ===
+
 @app.route("/ingest-alert", methods=["POST"])
 def ingest_alert():
     auth = request.headers.get("X-Secret-Key")
@@ -54,22 +103,24 @@ def ingest_alert():
         urls = re.findall(r'https?://[^\s\)]+', message)
         if urls:
             analyses = []
-            for i, url in enumerate(urls[:4], 1):
+            for i, url in enumerate(urls[:3], 1):
+                title, content = get_content_for_url(url)
                 prompt = f"""
-Eres un analista de inteligencia en IA, deepfakes y ciberseguridad.
-Analiza este enlace: {url}
-Responde en este formato exacto:
-- Tema: [breve título]
-- Impacto: [número entero del 1 al 10]
-- Resumen: [2 líneas claras: qué es, por qué es relevante, riesgos o aplicaciones]
+Eres un analista de IA y ciberseguridad. Analiza este contenido:
+
+Título: {title}
+Contenido: {content}
+
+Resume en 3 líneas: (1) qué es, (2) por qué es relevante, (3) riesgos o aplicaciones.
+Luego, da un puntaje de impacto del 1 al 10.
 """
                 analysis = query_openai(prompt)
                 analyses.append(f"{i}. {analysis}\n")
             ranking = "\n".join(analyses)
             response = (
-                "🧠 <b>✨ AI Radar Galáctico — Análisis Automático</b>\n\n"
+                "🧠 <b>✨ AI Radar — Análisis con Scraping Real</b>\n\n"
                 f"{ranking}\n"
-                "💬 ¿Sobre cuál quieres profundizar? Responde con el número o pregúntame cualquier cosa."
+                "💬 ¿Sobre cuál quieres profundizar?"
             )
             send_telegram(ALLOWED_CHAT_ID, response)
         else:
@@ -78,48 +129,44 @@ Responde en este formato exacto:
     except Exception as e:
         return f"Error: {e}", 500
 
-# 💬 Responde a tus comandos y analiza enlaces automáticamente
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
     update = request.get_json()
     if not update or "message" not in update:
         return "OK"
-
     message = update["message"]
     chat_id = str(message["chat"]["id"])
     text = message.get("text", "").strip()
-
     if chat_id != ALLOWED_CHAT_ID:
         return "OK"
-
     urls = re.findall(r'https?://[^\s\)]+', text)
     if urls:
         analyses = []
-        for i, url in enumerate(urls[:4], 1):
+        for i, url in enumerate(urls[:3], 1):
+            title, content = get_content_for_url(url)
             prompt = f"""
-Eres un analista de inteligencia en IA, deepfakes y ciberseguridad.
-Analiza este enlace: {url}
-Responde en este formato exacto:
-- Tema: [breve título]
-- Impacto: [número entero del 1 al 10]
-- Resumen: [2 líneas claras: qué es, por qué es relevante, riesgos o aplicaciones]
+Eres un analista de IA y ciberseguridad. Analiza este contenido:
+
+Título: {title}
+Contenido: {content}
+
+Resume en 3 líneas: (1) qué es, (2) por qué es relevante, (3) riesgos o aplicaciones.
+Luego, da un puntaje de impacto del 1 al 10.
 """
             analysis = query_openai(prompt)
             analyses.append(f"{i}. {analysis}\n")
         ranking = "\n".join(analyses)
         response = (
-            "🧠 <b>✨ Análisis Automático</b>\n\n"
+            "🧠 <b>✨ Análisis con Scraping Real</b>\n\n"
             f"{ranking}\n"
             "💬 ¿Sobre cuál quieres profundizar?"
         )
         send_telegram(chat_id, response)
     else:
-        response = query_openai(f"Eres un experto en IA y ciberseguridad. Responde: {text}")
+        response = query_openai(f"Eres un experto en IA. Responde: {text}")
         send_telegram(chat_id, response)
-
     return "OK"
 
-# ✅ Health check
 @app.route("/health", methods=["GET"])
 def health():
     return "OK"

@@ -5,7 +5,6 @@ import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
 
-# ===== CONFIGURACIÓN =====
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALLOWED_CHAT_ID = os.getenv("ALLOWED_CHAT_ID")
@@ -40,15 +39,11 @@ def query_openai(prompt):
     except Exception as e:
         return f"⚠️ Error técnico: {str(e)}"
 
-# === EXTRACCIÓN DE CONTENIDO REAL ===
-
 def extract_arxiv_abstract(arxiv_id):
-    """Extrae abstract de arXiv usando su API nativa"""
     try:
         url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            # Parsear XML
             root = ET.fromstring(response.content)
             entry = root.find("{http://www.w3.org/2005/Atom}entry")
             if entry is not None:
@@ -61,36 +56,30 @@ def extract_arxiv_abstract(arxiv_id):
     return None, None
 
 def extract_generic_content(url):
-    """Extrae texto limpio de cualquier página web"""
     try:
-        # Intentar con trafilatura (si está instalado)
         import trafilatura
         downloaded = trafilatura.fetch_url(url)
         text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
         if text and len(text) > 100:
-            return text[:2000]  # Limitar a 2000 caracteres
+            return text[:2000]
     except Exception as e:
         print(f"[Scraping Error] {e}")
-        # Fallback: usar solo el título si no se puede scrapear
-        return f"Contenido de {url} (no se pudo extraer texto completo)."
     return f"Contenido de {url}."
 
 def get_content_for_url(url):
-    """Devuelve título y contenido real según el tipo de URL"""
     parsed = urlparse(url)
     if "arxiv.org" in parsed.netloc:
-        # Extraer ID de arXiv
         path_parts = parsed.path.strip("/").split("/")
         if "abs" in path_parts:
             arxiv_id = path_parts[-1]
             title, abstract = extract_arxiv_abstract(arxiv_id)
             if title and abstract:
                 return title, abstract
-    # Para cualquier otra URL
     content = extract_generic_content(url)
     return f"Contenido de {url}", content
 
-# === ENDPOINTS ===
+# === Almacenamiento temporal de URLs (para profundizar) ===
+temp_urls = {}
 
 @app.route("/ingest-alert", methods=["POST"])
 def ingest_alert():
@@ -102,13 +91,16 @@ def ingest_alert():
         message = data.get("message", "")
         urls = re.findall(r'https?://[^\s\)]+', message)
         if urls:
+            global temp_urls
+            temp_urls[ALLOWED_CHAT_ID] = urls[:6]  # Guardar hasta 6 URLs
             analyses = []
-            for i, url in enumerate(urls[:3], 1):
+            for i, url in enumerate(urls[:6], 1):
                 title, content = get_content_for_url(url)
                 prompt = f"""
 Eres un analista de IA y ciberseguridad. Analiza este contenido:
 
 Título: {title}
+URL: {url}
 Contenido: {content}
 
 Resume en 3 líneas: (1) qué es, (2) por qué es relevante, (3) riesgos o aplicaciones.
@@ -120,7 +112,7 @@ Luego, da un puntaje de impacto del 1 al 10.
             response = (
                 "🧠 <b>✨ AI Radar — Análisis con Scraping Real</b>\n\n"
                 f"{ranking}\n"
-                "💬 ¿Sobre cuál quieres profundizar?"
+                "💬 Responde con <b>\"Profundiza sobre la 1\"</b>, <b>\"2\"</b>, etc. para analizar en detalle."
             )
             send_telegram(ALLOWED_CHAT_ID, response)
         else:
@@ -139,15 +131,48 @@ def telegram_webhook():
     text = message.get("text", "").strip()
     if chat_id != ALLOWED_CHAT_ID:
         return "OK"
+
+    # Comando para profundizar
+    if text.lower().startswith("profundiza sobre la"):
+        try:
+            num = int(text.split()[-1])
+            urls = temp_urls.get(chat_id, [])
+            if 1 <= num <= len(urls):
+                selected_url = urls[num - 1]
+                title, content = get_content_for_url(selected_url)
+                prompt = f"""
+Eres un experto en IA y ciberseguridad. Profundiza en este tema:
+
+Título: {title}
+URL: {selected_url}
+Contenido: {content}
+
+Responde con:
+- Explicación técnica detallada
+- Aplicaciones prácticas
+- Riesgos o ventajas
+- Recomendaciones para mitigar riesgos
+"""
+                analysis = query_openai(prompt)
+                send_telegram(chat_id, f"🔍 <b>Profundización sobre Noticia {num}</b>\n\n{analysis}")
+            else:
+                send_telegram(chat_id, "⚠️ Número inválido. Elige entre 1 y 6.")
+        except Exception as e:
+            send_telegram(chat_id, "⚠️ Usa el formato: \"Profundiza sobre la 1\"")
+        return "OK"
+
+    # Análisis de enlaces en mensajes manuales
     urls = re.findall(r'https?://[^\s\)]+', text)
     if urls:
+        temp_urls[chat_id] = urls[:6]
         analyses = []
-        for i, url in enumerate(urls[:3], 1):
+        for i, url in enumerate(urls[:6], 1):
             title, content = get_content_for_url(url)
             prompt = f"""
 Eres un analista de IA y ciberseguridad. Analiza este contenido:
 
 Título: {title}
+URL: {url}
 Contenido: {content}
 
 Resume en 3 líneas: (1) qué es, (2) por qué es relevante, (3) riesgos o aplicaciones.
@@ -159,7 +184,7 @@ Luego, da un puntaje de impacto del 1 al 10.
         response = (
             "🧠 <b>✨ Análisis con Scraping Real</b>\n\n"
             f"{ranking}\n"
-            "💬 ¿Sobre cuál quieres profundizar?"
+            "💬 Responde con <b>\"Profundiza sobre la 1\"</b>, <b>\"2\"</b>, etc."
         )
         send_telegram(chat_id, response)
     else:

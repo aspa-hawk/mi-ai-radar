@@ -107,7 +107,7 @@ Resume en 3 líneas: (1) qué es, (2) por qué es relevante, (3) riesgos o aplic
 Luego, da un puntaje de impacto del 1 al 10.
 """
                 analysis = query_openai(prompt)
-                analyses.append(f"{i}. {analysis}\n")
+                analyses.append(f"{analysis}\n")
             ranking = "\n".join(analyses)
             response = (
                 "🧠 <b>✨ AI Radar — Análisis con Scraping Real</b>\n\n"
